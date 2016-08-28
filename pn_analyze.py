@@ -4,6 +4,10 @@ import datetime
 import pandas as pd
 from sqlalchemy import create_engine
 
+import expd_analytics._data as _data
+import expd_analytics._graphs as _graphs
+
+
 REGEX_PATTERN_GCI =  r'[A-Z]\w{5,7}'
 
 def load_up_initial_db(sql_table, disk_engine, date_fmt):

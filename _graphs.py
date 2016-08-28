@@ -1,6 +1,7 @@
 import matplotlib
 # fix
 import matplotlib.pyplot as plt
+import collections
 
 def create_uniform_tcks(array):
     return [i for i in range(len(array))]
@@ -80,3 +81,17 @@ def generic_scatter_over_plot(dataframes, x, y, labels, xtick_label=None, ytick_
     else:
         fig.show()
     # this bs is a lot of if/else which is lame.
+
+def plot_coverage_by_endpoint(dataframe, mask, endpoint, title_str):
+  masked_df = dataframe[mask]
+  # there MUST BE A BETTER WAY
+  mapper = collections.OrderedDict()
+  u = 0
+  for end in masked_df[endpoint].unique():
+    mapper[case_action] = u
+    u+=1
+  fig, ax = plt.subplots(figsize=(20,10))
+  ax.hist(masked_df[endpoint].mask(mapper), bins=1.5*len(mapper), color='b', alpha=0.7)
+  ax.set_xticks(list(mapper.values()))
+  ax.set_xticklabels(list(mapper.keys()), rotation=70)
+  ax.set_title(title_str)
