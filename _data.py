@@ -1,4 +1,7 @@
 import pandas as pd
+import numpy as np
+import socket
+from datetime import datetime
 
 
 def remove_totally_failed_tests(test_result_df):
@@ -14,40 +17,44 @@ def remove_totally_failed_tests(test_result_df):
     return removed_guuids, test_result_df
 
 
-def create_numeric_status(result_df):
-    # for priming the dataframe. run @ beginning.
-    boolean_map = {"passed": 1, "failed": 0, "running": 3, "skipped": 2}
-    result_df['numeric_status'] = pd.Series(result_df.case_status.map(boolean_map), index=result_df.index)
-    return result_df
+def get_failed_mask(dataframe):
+    return (dataframe.case_status == 'failed') | ( dataframe.case_status == 'skipped')
 
 
 def this_month(df, time_col):
-    return df[time_col].map(lambda x: x.month) == now.month
+    return df[time_col].map(lambda x: x.month) == datetime.now().month
 
 
 def this_year(df, time_col):
-    return df[time_col].map(lambda x: x.year) == now.year
+    return df[time_col].map(lambda x: x.year) == datetime.now().year
 
 
 def today(df, time_col):
-    return df[time_col].map(lambda x: x.day) == now.day
+    return df[time_col].map(lambda x: x.day) == datetime.now().day
 
 
-def return_in_norm(df, col, sigma):
+def any_day(df, time_col, day):
+    return df[time_col].map(lambda x: x.day) == day
+
+
+def any_month(df, time_col, month):
+    return df[time_col].map(lambda x: x.month) == month
+
+
+def any_year(df, time_col, year):
+    return df[time_col].map(lambda x: x.year) == year
+
+
+def return_in_norm_df(df, col, sigma):
     return np.abs(df[col] - df[col].mean()) <= (sigma*df[col].std())
 
 
-def make_datetime_column(dfa, timestamp_col, strip_val=None):
-    if strip_val:
-        dfa.good_date = dfa[timestamp_col].str.strip(strip_val)
-        dfa.datetime = pd.Index(dfa.good_date.apply(pd.Timestamp))
-    else:
-        dfa.datetime = pd.Index(dfa[timestamp_col].apply(pd.Timestamp))
-    return dfa.datetime
+def return_in_norm_series(series, sigma):
+    return np.abs(series - series.mean()) <= (sigma*series.std())
 
 
-def get_failed_mask(dataframe):
-    return (dataframe.case_status == 'failed') | ( dataframe.case_status == 'skipped')
+def normalize_series(series):
+    return (series - series.mean()) / (series.max() - series.min())
 
 
 def measure_by_case_action(dataframe, case_action_value, specific_endpoint=None):
@@ -58,17 +65,15 @@ def measure_by_case_action(dataframe, case_action_value, specific_endpoint=None)
     return case_action_df
 
 
-def endpoint_v_duration(dataframe, endpoint):
-    # time series analysis of server -- mean of each test run over time.
-    server_specific_dframe = dataframe[dataframe.case_endpoint.str.contains(endpoint)]
-    guids = server_specific_dframe.group_uuid.unique()
-    mean_duration = []
-    timestamp = []
-    for uid in guids:
-        uid_df = dataframe[dataframe.group_uuid == uid]
-        mean_duration.append(uid_df.case_duration.mean())
-        timestamp.append(uid_df.iloc[0].case_timestamp)
-    return mean_duration, timestamp
+def return_guuid_latest(result_df):
+    # return group_uuid of latest test run
+    latest_run = result_df[result_df.case_timestamp == result_df.case_timestamp.max()]
+    return latest_run.group_uuid.values
+
+
+def get_hostname(ip):
+    hostname, aliases, ipaddresses = socket.gethostbyaddr(ip)
+    return hostname
 
 
 def create_mean_col_from_unique_vals(dataframe, mean_col, unique_col, include=None):
@@ -99,5 +104,36 @@ def create_mean_col_from_unique_vals(dataframe, mean_col, unique_col, include=No
     return mean_col_by_unique_col
 
 
-def normalize_series(series):
-    return (series - series.mean()) / (series.max() - series.min())
+def return_norm_number_vs_string(dataframe, number_col, sigma):
+    normed_df = dataframe[return_in_norm_df(dataframe, number_col, sigma)]
+    # normed_df.index = create_uniform_tcks(normed_df.number_col)
+    return normed_df
+
+
+def endpoint_v_duration(dataframe, endpoint):
+    # time series analysis of server -- mean of each test run over time.
+    server_specific_dframe = dataframe[dataframe.case_endpoint.str.contains(endpoint)]
+    guids = server_specific_dframe.group_uuid.unique()
+    mean_duration = []
+    timestamp = []
+    for uid in guids:
+        uid_df = dataframe[dataframe.group_uuid == uid]
+        mean_duration.append(uid_df.case_duration.mean())
+        timestamp.append(uid_df.iloc[0].case_timestamp)
+    return mean_duration, timestamp
+
+
+def return_specific_case_over_time(df, case):
+    duration_over_time = df[df.case_id == case].dropna()
+    return duration_over_time
+
+
+def return_longest_case_over_time(df, aggregation):
+    # finds the case id with the largest mean duration, then returns a dataframe  of just that case
+    # agg dict should maybe be pulled out
+    groupby_id = df.groupby('case_id')
+    mean_duration_df = groupby_id.agg(aggregation).dropna()
+    max_duration = mean_duration_df[(mean_duration_df.case_duration.mean_duration ==
+                                                   mean_duration_df.case_duration.mean_duration.max())]
+    max_duration_over_time = _data.return_specific_case_over_time(df, max_duration.index.values[0])
+    return max_duration_over_time

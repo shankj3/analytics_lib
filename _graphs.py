@@ -13,6 +13,12 @@ def create_degenerate_tcks(array):
     return [array[l] for l in array]
 
 
+def create_useful_hist_xtcks_map(series):
+    xtcks = range(len(series.unique()))
+    hist_map = dict(zip(series.unique(), xtcks))
+    return hist_map
+
+
 def plot_string_2d(string_col, numeric_col, rotation, xtick_font_size=5, save_path=None):
     # plot a scatter 2d plot with a string column as x and numeric as y.
     fig, ax = plt.subplots(figsize=(20, 10))
@@ -27,7 +33,7 @@ def plot_string_2d(string_col, numeric_col, rotation, xtick_font_size=5, save_pa
         plt.savefig(save_path)
 
 
-def autolabel(rects):
+def autolabel(rects, ax):
     # attach some text labels
     for rect in rects:
         height = rect.get_height()
@@ -82,16 +88,18 @@ def generic_scatter_over_plot(dataframes, x, y, labels, xtick_label=None, ytick_
         fig.show()
     # this bs is a lot of if/else which is lame.
 
-def plot_coverage_by_endpoint(dataframe, mask, endpoint, title_str):
-  masked_df = dataframe[mask]
-  # there MUST BE A BETTER WAY
-  mapper = collections.OrderedDict()
-  u = 0
-  for end in masked_df[endpoint].unique():
-    mapper[case_action] = u
-    u+=1
-  fig, ax = plt.subplots(figsize=(20,10))
-  ax.hist(masked_df[endpoint].mask(mapper), bins=1.5*len(mapper), color='b', alpha=0.7)
-  ax.set_xticks(list(mapper.values()))
-  ax.set_xticklabels(list(mapper.keys()), rotation=70)
-  ax.set_title(title_str)
+
+#
+# def plot_coverage_by_endpoint(dataframe, mask, endpoint, title_str):
+#   masked_df = dataframe[mask]
+#   # there MUST BE A BETTER WAY
+#   mapper = collections.OrderedDict()
+#   u = 0
+#   for end in masked_df[endpoint].unique():
+#     mapper[case_action] = u
+#     u+=1
+#   fig, ax = plt.subplots(figsize=(20,10))
+#   ax.hist(masked_df[endpoint].mask(mapper), bins=1.5*len(mapper), color='b', alpha=0.7)
+#   ax.set_xticks(list(mapper.values()))
+#   ax.set_xticklabels(list(mapper.keys()), rotation=70)
+#   ax.set_title(title_str)
