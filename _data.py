@@ -1,23 +1,22 @@
-import pandas as pd
-import numpy as np
+"""
+This is the data module of expd_analytics.
+Functions for modifying pandas dataframes/useful things for Expeditors analytics of PYNET test suite data.
+"""
+
+__author__ = 'Jessi Shank <jessica.shank@expeditors.com>'
+
+
 import socket
 from datetime import datetime
 
+import numpy as np
 
-def remove_totally_failed_tests(test_result_df):
-    """Remove all test runs that completely failed, as they are likely garbage.
-    This takes a while, should only be run on initialization of the dataframe/when appending new dataframes"""
-    all_runs = test_result_df.group_uuid.unique()
-    removed_guuids = []
-    for test_run in all_runs:
-        overall_status = test_result_df[(test_result_df.group_uuid == test_run) & ~get_failed_mask(test_result_df)]
-        if not len(overall_status):
-            test_result_df = test_result_df[test_result_df.group_uuid != test_run]
-            removed_guuids.append(test_run)
-    return removed_guuids, test_result_df
+REGEX_PATTERN_GCI = r'[A-Z]\w{5,7}'
+REGEX_PATTERN_DB_ID = r'[0-9]{15}'
 
 
 def get_failed_mask(dataframe):
+    """return mask of """
     return (dataframe.case_status == 'failed') | ( dataframe.case_status == 'skipped')
 
 
@@ -46,14 +45,17 @@ def any_year(df, time_col, year):
 
 
 def return_in_norm_df(df, col, sigma):
+    """given a column of a dataframe, return a mask that is within sigma standard deviations of the mean."""
     return np.abs(df[col] - df[col].mean()) <= (sigma*df[col].std())
 
 
 def return_in_norm_series(series, sigma):
+    """return a mask for pandas series that is within sigma standard deviations of the mean."""
     return np.abs(series - series.mean()) <= (sigma*series.std())
 
 
 def normalize_series(series):
+    """normalize a pandas series to 1"""
     return (series - series.mean()) / (series.max() - series.min())
 
 
@@ -66,27 +68,37 @@ def measure_by_case_action(dataframe, case_action_value, specific_endpoint=None)
 
 
 def return_guuid_latest(result_df):
-    # return group_uuid of latest test run
+    """return group_uuid of latest test run
+
+    Keyword arguments:
+    result_df -- TestResult pandas DataFrame to find latest group_uuid of.
+
+    Return:
+    Str group_uuid of latest test run
+    """
     latest_run = result_df[result_df.case_timestamp == result_df.case_timestamp.max()]
-    return latest_run.group_uuid.values
+    return latest_run.group_uuid.values[0]
 
 
 def get_hostname(ip):
+    """get resolved host name by IP address"""
     hostname, aliases, ipaddresses = socket.gethostbyaddr(ip)
     return hostname
 
 
 def create_mean_col_from_unique_vals(dataframe, mean_col, unique_col, include=None):
-    """Return a small dataframe from a different one when you want to generate a number from the average of each unique value in a different column
-       :param dataframe:
-       :param mean_col: column you want to get mean value of
-       :type mean_col: string
-       :param unique col: column name that has repeating values. function will mask the dataframe on unique values of column, then save the mean of each of those masks
-       :type unique_col: string
-       :param include: optional: column to include along with mean and unique values, if those values are unique as well
+    """Return a small dataframe from a different one when you want to generate a number from the average of each unique
+    value in a different column
 
-       :return: dictionary of unique values and the mean of mean_col's values
-       :rtype: dict
+    Keyword arguments:
+    Dataframe -- pandas dataframe
+    mean_col -- column you want to get mean value of (str)
+    unique col -- column name that has repeating values. function will mask the dataframe on unique values of
+        column, then save the mean of each of those masks (str)
+    include -- column to include along with mean and unique values, if those values are unique as well (default None)
+
+    Return:
+    dictionary of unique values and the mean of mean_col's values
     """
     mean_col_by_unique_col = {mean_col: [], unique_col: [], 'index': []}
     ind = 0
@@ -129,11 +141,49 @@ def return_specific_case_over_time(df, case):
 
 
 def return_longest_case_over_time(df, aggregation):
+    """Find the case id with the largest mean duration, then return a dataframe of that case for analysis
+
+    Keyword Arguments:
+    df -- pandas Dataframe to find longest mean case duration of
+    aggregation -- dictionary to aggregate the groupby frame
+
+    Return:
+    Dataframe of highest mean case run time
+    """
     # finds the case id with the largest mean duration, then returns a dataframe  of just that case
     # agg dict should maybe be pulled out
     groupby_id = df.groupby('case_id')
     mean_duration_df = groupby_id.agg(aggregation).dropna()
     max_duration = mean_duration_df[(mean_duration_df.case_duration.mean_duration ==
                                                    mean_duration_df.case_duration.mean_duration.max())]
-    max_duration_over_time = _data.return_specific_case_over_time(df, max_duration.index.values[0])
+    max_duration_over_time = return_specific_case_over_time(df, max_duration.index.values[0])
     return max_duration_over_time
+
+
+def prune(df, regex_list):
+    """
+    Remove items from dataframe based on a regex pattern in the case action
+
+    Keyword Arguments:
+    df -- pandas Dataframe to prune
+    regex_list -- list of RegEx patterns to remove from dataframe
+
+    Return:
+    Pruned dataframe
+    """
+    for regex_pattern in regex_list:
+        df = df[~df.case_action.str.contains(regex_pattern)]
+    return df
+
+
+def remove_totally_failed_tests(df):
+    """Remove all test runs that completely failed, as they are likely garbage.
+    This takes a while, should only be run on initialization of the dataframe/when appending new dataframes"""
+    all_runs = df.group_uuid.unique()
+    removed_guuids = []
+    for test_run in all_runs:
+        overall_status = df[(df.group_uuid == test_run) & ~get_failed_mask(df)]
+        if not len(overall_status):
+            df = df[df.group_uuid != test_run]
+            removed_guuids.append(test_run)
+    return df, removed_guuids

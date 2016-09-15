@@ -1,4 +1,5 @@
 import datetime
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,7 +8,10 @@ import _data
 import _graphs
 
 REGEX_PATTERN_GCI = r'[A-Z]\w{5,7}'
+REGEX_PATTERN_DB_ID = r'[0-9]{15}'
 TIMESTAMP_PARSE_DICT = {'case_timestamp': '%Y-%m-%dT%H:%M:%S.%fZ'}
+
+# http://blog.thedataincubator.com/2015/09/painlessly-deploying-data-apps-with-bokeh-flask-and-heroku/
 
 
 def load_up_initial_db(sql_table, disk_engine, date_fmt):
@@ -17,6 +21,21 @@ def load_up_initial_db(sql_table, disk_engine, date_fmt):
         df_tot.append(chunk)
     metrics = pd.concat(df_tot)
     return metrics
+
+
+def get_case_list_by_group(config):
+    """given a PYNET config map, return the full case lists (including dependent groups) of each group"""
+    # Identity = namedtuple('Identity', ['service', 'id'])
+    groups = config.get('groups')
+    full_case_lists = {}
+    for group_name, group in groups.items():
+        cases = group['cases']
+        if group.get('dependencies'):
+            for dep in group.get('dependencies'):
+                dependencies_tests = groups.get(dep).get('cases')
+                cases +=  dependencies_tests
+        full_case_lists[group_name] = cases
+    return full_case_lists
 
 
 # def strict_startup(table):
@@ -42,6 +61,10 @@ class AnyData:
 class PynetData(AnyData):
     def __init__(self, disk_engine, table):
         super().__init__(disk_engine, table)
+        self._config_group_data = None
+        self._this_month = None
+        self._this_year = None
+        self._today = None
 
     @property
     def now(self):
@@ -52,47 +75,81 @@ class PynetData(AnyData):
         latest_test_run = self.df[self.df.group_uuid.isin(_data.return_guuid_latest(self.df))]
         return latest_test_run
 
+    @property
+    def config_group_data(self):
+        return self._config_group_data
+
+    @config_group_data.setter
+    def config_group_data(self, data):
+        self._config_group_data = data
+
+    @property
+    def this_month(self):
+        """mask of dataframe that corresponds to current month"""
+        return self._this_month
+
+    @this_month.setter
+    def this_month(self, this_month_mask):
+        self._this_month = this_month_mask
+
+    @property
+    def this_year(self):
+        """mask of dataframe that corresponds to current year"""
+        return self._this_year
+
+    @this_year.setter
+    def this_year(self, this_year_mask):
+        self._this_year = this_year_mask
+
+    @property
+    def today(self):
+        """mask of dataframe that corresponds to current day"""
+        return self._today
+
+    @today.setter
+    def today(self, today_mask):
+        self._today = today_mask
+
     def load_up_initial_db(self, date_dict):
+        """
+        Load a database by table into a pandas dataframe in chunks.
+
+        Keyword argument:
+        date_dict -- Map of columns : date string format to parse into type(pd.Timestamp)
+        """
         df_tot = []
         for chunk in pd.read_sql_table(self.table, self.disk_engine, chunksize=10000, parse_dates=date_dict):
             df_tot.append(chunk)
         self.df = pd.concat(df_tot)
 
     def create_numeric_status(self):
-        # for priming the dataframe. run @ beginning.
+        """To be run on startup:
+        create a numeric representation of the case_status to be used for analysis
+        """
         boolean_map = {"passed": 1, "failed": 0, "running": 3, "skipped": 2}
         self.df['numeric_status'] = pd.Series(self.df.case_status.map(boolean_map), index=self.df.index)
         df_status = pd.get_dummies(self.df.case_status)
         self.df = pd.concat([self.df, df_status], axis=1)
 
     def create_date_integer(self):
+        """To be run on startup:
+        Create integer representation of the case_timestamp
+        """
         self.df['date_int'] = self.df.case_timestamp.astype(np.int64)
-
-    def remove_totally_failed_tests(self):
-        """Remove all test runs that completely failed, as they are likely garbage.
-        This takes a while, should only be run on initialization of the dataframe/when appending new dataframes"""
-        all_runs = self.df.group_uuid.unique()
-        removed_guuids = []
-        for test_run in all_runs:
-            overall_status = self.df[(self.df.group_uuid == test_run) & ~_data.get_failed_mask(self.df)]
-            if not len(overall_status):
-                self.df = self.df[self.df.group_uuid != test_run]
-                removed_guuids.append(test_run)
-        return removed_guuids
 
 
 class TestResult(PynetData):
-    """class that represents/manipulates the data from the test_result table in the PYNET database."""
+    """ class that represents/manipulates the data from the test_result table in the PYNET database."""
     def __init__(self, disk_engine):
         super().__init__(disk_engine, 'test_result')
-
-    def prune(self):
-        gci_bs = self.df.case_action.str.contains(REGEX_PATTERN_GCI)
-        self.df = self.df[~gci_bs]
+        self.is_cleaned = False
 
     def refresh_metrics(self, table):
         latest = self.df.case_timestamp.max()
         latest_df = pd.read_sql('select * from {0} where case_timestamp > {1}'.format(table, latest),  self.disk_engine)
+        if self.is_cleaned:
+            latest_df = _data.prune(latest_df, [REGEX_PATTERN_GCI, REGEX_PATTERN_DB_ID])
+            latest_df, _ = _data.remove_totally_failed_tests(latest_df)
         self.df = self.df.append(latest_df)
 
     def clean(self):
@@ -101,21 +158,24 @@ class TestResult(PynetData):
             Remove GCI crap if it exists in any endpoint (use ml later),
 
         """
-        self.remove_totally_failed_tests()
-        self.prune()
+        self.df = _data.prune(self.df, [REGEX_PATTERN_GCI, REGEX_PATTERN_DB_ID])
+        self.df, _ = _data.remove_totally_failed_tests(self.df)
+        self.is_cleaned = True
 
     def add_numeric_cols(self):
-        """
-        Create numeric via get_dummies, and one from a map (which one is more useful? idk. we'll see.)
+        """Create numeric via get_dummies,
+        and one from a map (which one is more useful? idk. we'll see.)
         """
         self.create_numeric_status()
         self.create_date_integer()
 
     def startup(self):
+        """Startup without removing failed tests or pruning the gci tests"""
         self.load_up_initial_db(TIMESTAMP_PARSE_DICT)
         self.add_numeric_cols()
 
     def strict_startup(self):
+        """Startup with removing completely failed test runs and pruning gci tests."""
         self.load_up_initial_db(TIMESTAMP_PARSE_DICT)
         self.clean()
         self.add_numeric_cols()
@@ -148,6 +208,7 @@ class TestResult(PynetData):
     def return_failed_by_action(self):
         # pass
         pass
+
 
 class LiveExpected(PynetData):
     def __init__(self, database_location):
