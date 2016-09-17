@@ -49,7 +49,7 @@ class AnyData:
     def __init__(self, disk_engine, table):
         self.disk_engine = disk_engine
         self.table = table
-        self.df = None
+        self.df = pd.DataFrame()
 
     def load_up_initial_db(self, date_dict):
         df_tot = []
@@ -58,10 +58,16 @@ class AnyData:
         self.df = pd.concat(df_tot)
 
 
+def return_date_mask(func):
+    def here(name):
+        return func(name)[0].case_timestamp.map(lambda x: x.month) == datetime.now().month
+
+
 class PynetData(AnyData):
     def __init__(self, disk_engine, table):
         super().__init__(disk_engine, table)
         self._config_group_data = None
+        self.time = datetime.datetime.now()
         self._this_month = None
         self._this_year = None
         self._today = None
@@ -79,36 +85,36 @@ class PynetData(AnyData):
     def config_group_data(self):
         return self._config_group_data
 
-    @config_group_data.setter
-    def config_group_data(self, data):
-        self._config_group_data = data
-
     @property
     def this_month(self):
         """mask of dataframe that corresponds to current month"""
+        if self.time.month != datetime.datetime.now().month:
+            self.update_time()
         return self._this_month
-
-    @this_month.setter
-    def this_month(self, this_month_mask):
-        self._this_month = this_month_mask
 
     @property
     def this_year(self):
         """mask of dataframe that corresponds to current year"""
+        if self.time.year != datetime.datetime.now().year:
+            self.update_time()
         return self._this_year
-
-    @this_year.setter
-    def this_year(self, this_year_mask):
-        self._this_year = this_year_mask
 
     @property
     def today(self):
         """mask of dataframe that corresponds to current day"""
+        if self.time.day != datetime.datetime.now().day:
+            self.update_time()
         return self._today
 
-    @today.setter
-    def today(self, today_mask):
-        self._today = today_mask
+    def update_time(self):
+        """update all the masks, then reset the time so it won't do it again"""
+        if self.time.year != datetime.datetime.now().year:
+            self._this_year = _data.this_year(self.df, 'case_timestamp')
+        if self.time.month != datetime.datetime.now().month:
+            self._this_month = _data.this_month(self.df, 'case_timestamp')
+        if self.time.day != datetime.datetime.now().day:
+            self._today = _data.today(self.df, 'case_timestamp')
+        self.time = datetime.datetime.now()
 
     def load_up_initial_db(self, date_dict):
         """

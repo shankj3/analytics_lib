@@ -29,7 +29,8 @@ def this_year(df, time_col):
 
 
 def today(df, time_col):
-    return df[time_col].map(lambda x: x.day) == datetime.now().day
+    today = datetime.now()
+    return df[time_col].map(lambda x: x.day + x.month + x.year) == today.day + today.month + today.year
 
 
 def any_day(df, time_col, day):
