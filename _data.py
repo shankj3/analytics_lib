@@ -188,3 +188,17 @@ def remove_totally_failed_tests(df):
             df = df[df.group_uuid != test_run]
             removed_guuids.append(test_run)
     return df, removed_guuids
+
+
+def highest_failures_by_groupby_count(groupby_df, count):
+    mean_status = groupby_df.numeric_status.mean()
+    worst = mean_status.sort_values()[:count]
+    return worst
+
+
+def highest_failures_by_df_stdev(df, groupby_key, sigma=0):
+    groupby_df = df.groupby(groupby_key)
+    vals = groupby_df.numeric_status.mean()
+    normed_vals = vals[~return_in_norm_series(vals, sigma)]
+    not_pass_fail_100 = normed_vals[(normed_vals <= 0.95) & (normed_vals != 0)]
+    return not_pass_fail_100

@@ -1,11 +1,16 @@
+import os
 import datetime
+import threading
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
+from pandas.util.testing import test_parallel
+
 import _data
 import _graphs
+import helper
 
 REGEX_PATTERN_GCI = r'[A-Z]\w{5,7}'
 REGEX_PATTERN_DB_ID = r'[0-9]{15}'
@@ -33,7 +38,7 @@ def get_case_list_by_group(config):
         if group.get('dependencies'):
             for dep in group.get('dependencies'):
                 dependencies_tests = groups.get(dep).get('cases')
-                cases +=  dependencies_tests
+                cases += dependencies_tests
         full_case_lists[group_name] = cases
     return full_case_lists
 
@@ -51,11 +56,28 @@ class AnyData:
         self.table = table
         self.df = pd.DataFrame()
 
+    # TODO: LOOK INTO DASK:: https://dask.readthedocs.io/en/latest/
+    @test_parallel(num_threads=5)
     def load_up_initial_db(self, date_dict):
         df_tot = []
         for chunk in pd.read_sql_table(self.table, self.disk_engine, chunksize=10000, parse_dates=date_dict):
             df_tot.append(chunk)
         self.df = pd.concat(df_tot)
+
+    def dump_to_csv(self, function, path, kwargs=None):
+        """dump a smaller dataframe to a csv file
+        I'm hoping I can use this to frequently trigger common df's to create graphs
+
+
+        :param function: function to apply to df (groupby/aggregation.. basically to get valuable data)
+        :param kwargs: map of keyword args to also pass to *function* (default empty)
+        :param path: filepath to dump to
+
+        """
+        if not kwargs:
+            kwargs = {}
+        df_to_dump = function(self.df, **kwargs)
+        df_to_dump.to_csv(path)
 
 
 def return_date_mask(func):
@@ -87,32 +109,32 @@ class PynetData(AnyData):
 
     @property
     def this_month(self):
-        """mask of dataframe that corresponds to current month"""
-        if self.time.month != datetime.datetime.now().month:
-            self.update_time()
+        """mask of dataframe that corrasdfesponds to current month"""
+        if self.time.month != datetime.datetime.now().month or self._this_month is None:
+            self._update_time()
         return self._this_month
 
     @property
     def this_year(self):
         """mask of dataframe that corresponds to current year"""
-        if self.time.year != datetime.datetime.now().year:
-            self.update_time()
+        if self.time.year != datetime.datetime.now().year or self._this_year is None:
+            self._update_time()
         return self._this_year
 
     @property
     def today(self):
         """mask of dataframe that corresponds to current day"""
-        if self.time.day != datetime.datetime.now().day:
-            self.update_time()
+        if self.time.day != datetime.datetime.now().day or self._today is None:
+            self._update_time()
         return self._today
 
-    def update_time(self):
+    def _update_time(self):
         """update all the masks, then reset the time so it won't do it again"""
-        if self.time.year != datetime.datetime.now().year:
+        if self.time.year != datetime.datetime.now().year or self._this_year is None:
             self._this_year = _data.this_year(self.df, 'case_timestamp')
-        if self.time.month != datetime.datetime.now().month:
+        if self.time.month != datetime.datetime.now().month or self._this_month is None:
             self._this_month = _data.this_month(self.df, 'case_timestamp')
-        if self.time.day != datetime.datetime.now().day:
+        if self.time.day != datetime.datetime.now().day or self._today is None:
             self._today = _data.today(self.df, 'case_timestamp')
         self.time = datetime.datetime.now()
 
@@ -146,9 +168,31 @@ class PynetData(AnyData):
 
 class TestResult(PynetData):
     """ class that represents/manipulates the data from the test_result table in the PYNET database."""
-    def __init__(self, disk_engine):
+    def __init__(self, disk_engine, wait_interval=86400):
         super().__init__(disk_engine, 'test_result')
         self.is_cleaned = False
+        self.wait_interval = wait_interval
+        self._much_dump()
+
+    def _much_dump(self):
+        # basically on instantiation of the class, you're going to be dumping valuable info to a csv for
+        # the luigi pipeline to pick up. or you're going to just be dumping data for nothing. either way.
+        # you gonna need it.
+        print('_much_dump has been activated with {} s wait time'.format(self.wait_interval))
+        while True:
+            t = threading.Timer(self.wait_interval, self.data_dump)
+            t.start()
+            t.join()
+
+    def data_dump(self):
+        dump_path = os.path.join(os.path.expanduser('~'), 'pynet-data', 'test-result')
+        helper.direc_check(dump_path)
+        # dump a bunch of specific useful datas to CSV
+        # YES I'M AWARE THIS SHOULD BE BETTER
+        print('DUMPING TO CSV!!!!!!!ASLDKFJASL;KDJFLK;ASDJF')
+        self.dump_to_csv(_data.highest_failures_by_df_stdev,
+                         os.path.join(dump_path, 'highest_failures_by_caseid_stdev.csv'),
+                         {'groupby_key': 'case_id', 'sigma': 1.8})
 
     def refresh_metrics(self, table):
         latest = self.df.case_timestamp.max()

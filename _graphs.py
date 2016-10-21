@@ -3,6 +3,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import collections
 
+
 def create_uniform_tcks(array):
     return [i for i in range(len(array))]
 
@@ -51,7 +52,8 @@ def build_service_name_title(front_title, df):
     return front_title + title_string
 
 
-def generic_scatter_over_plot(dataframes, x, y, labels, xtick_label=None, ytick_label=None, loc=None, save_name=None, style=None):
+def generic_scatter_over_plot(dataframes, x, y, labels, xtick_label=None, ytick_label=None, loc=None, save_name=None,
+                              style=None):
     """Generic scatter plotting.
        :param dataframes: dataframes to include in plot
        :type dataframes: list
