@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
+from time import sleep
 from pandas.util.testing import test_parallel
 
 import _data
@@ -168,11 +169,14 @@ class PynetData(AnyData):
 
 class TestResult(PynetData):
     """ class that represents/manipulates the data from the test_result table in the PYNET database."""
-    def __init__(self, disk_engine, wait_interval=86400):
+    def __init__(self, disk_engine, wait_interval=86400, writing_to_csv=True):
         super().__init__(disk_engine, 'test_result')
         self.is_cleaned = False
         self.wait_interval = wait_interval
-        self._much_dump()
+        self.writing_to_csv = writing_to_csv
+        self._csv_thread = None
+        if self.writing_to_csv:
+            self._much_dump()
 
     def _much_dump(self):
         # basically on instantiation of the class, you're going to be dumping valuable info to a csv for
@@ -180,9 +184,19 @@ class TestResult(PynetData):
         # you gonna need it.
         print('_much_dump has been activated with {} s wait time'.format(self.wait_interval))
         while True:
-            t = threading.Timer(self.wait_interval, self.data_dump)
-            t.start()
-            t.join()
+            if self.df.empty:
+                print('DF IS EMPTY. SLEEPING 35 S')
+                # no use in trying to run anything if the dataframe doesn't exist.
+                sleep(35)
+                continue
+            self._csv_thread = threading.Timer(self.wait_interval, self.data_dump)
+            self._csv_thread.start()
+            self._csv_thread.join()
+            if not self.writing_to_csv:
+                break
+
+    def _terminate_dump(self):
+        self._writing_to_csv = False
 
     def data_dump(self):
         dump_path = os.path.join(os.path.expanduser('~'), 'pynet-data', 'test-result')
@@ -230,20 +244,6 @@ class TestResult(PynetData):
         self.clean()
         self.add_numeric_cols()
 
-    def plot_duration_by_endpoint(self):
-        # plots all endpoints against the duration of the cases run on it. figure out how to make this a more useful
-        # bar plot with median times, etc
-        duration_by_end_df = pd.DataFrame({
-                                            'case_endpoint': self.df.case_endpoint,
-                                            'case_duration': self.df.case_duration
-                                          })
-        fig, ax = plt.subplots(figsize=(20,10))
-        bp = duration_by_end_df.groupby('case_endpoint')
-        xticks = _graphs.create_uniform_tcks(duration_by_end_df.case_endpoint)
-        # print(bp.case_endpoint)
-        ax.scatter(xticks, duration_by_end_df.case_duration)
-        ax.set_xticklabels(duration_by_end_df.case_endpoint, rotation='vertical')
-        return bp
 
     # def return_mean_duration_by_action(self, filter=None):
     #     mean_duration_by_action = {"case_duration": [], "case_action": []}
